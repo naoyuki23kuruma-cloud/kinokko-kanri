@@ -500,28 +500,70 @@ export default function MarcheApp() {
 
   // 催し物保存
   const handleSaveEvent = async (ev: Partial<Event>, draftItems: DraftItem[]) => {
-    if (!currentMarche) return
+    if (!currentMarche) { showToast('マルシェが選択されていません', 'error'); return }
     setSaving(true)
     try {
       let eventId = ev.id
+
       if (ev.id) {
-        const { error } = await supabase.from('events').update({ name: ev.name, selling_price: ev.selling_price, target_quantity: ev.target_quantity, actual_quantity: ev.actual_quantity, actual_sales: ev.actual_sales, notes: ev.notes }).eq('id', ev.id)
-        if (error) throw error
+        // 既存イベント更新
+        const { error } = await supabase.from('events').update({
+          name: ev.name,
+          selling_price: ev.selling_price ?? 0,
+          target_quantity: ev.target_quantity ?? 0,
+          actual_quantity: ev.actual_quantity ?? null,
+          actual_sales: ev.actual_sales ?? null,
+          notes: ev.notes ?? '',
+        }).eq('id', ev.id)
+        if (error) throw new Error('催し物更新エラー: ' + error.message)
       } else {
-        const { data, error } = await supabase.from('events').insert({ marche_id: currentMarche.id, name: ev.name, selling_price: ev.selling_price, target_quantity: ev.target_quantity, actual_quantity: ev.actual_quantity, actual_sales: ev.actual_sales, notes: ev.notes }).select().single()
-        if (error) throw error
+        // 新規イベント追加
+        const insertData: any = {
+          name: ev.name,
+          selling_price: ev.selling_price ?? 0,
+          target_quantity: ev.target_quantity ?? 0,
+          notes: ev.notes ?? '',
+        }
+        // marche_idが設定可能な場合のみ追加
+        if (currentMarche.id) insertData.marche_id = currentMarche.id
+        if (ev.actual_quantity != null) insertData.actual_quantity = ev.actual_quantity
+        if (ev.actual_sales != null) insertData.actual_sales = ev.actual_sales
+
+        const { data, error } = await supabase.from('events').insert(insertData).select().single()
+        if (error) throw new Error('催し物追加エラー: ' + error.message)
+        if (!data) throw new Error('保存後のデータが取得できませんでした')
         eventId = data.id
       }
-      await supabase.from('purchase_items').delete().eq('event_id', eventId)
+
+      if (!eventId) throw new Error('イベントIDが取得できませんでした')
+
+      // 仕入れ品目を削除して再挿入
+      const { error: delError } = await supabase.from('purchase_items').delete().eq('event_id', eventId)
+      if (delError) throw new Error('品目削除エラー: ' + delError.message)
+
       const valid = draftItems.filter((it) => it.item_name.trim())
       if (valid.length > 0) {
-        await supabase.from('purchase_items').insert(valid.map((it) => ({ event_id: eventId, item_name: it.item_name.trim(), quantity: Number(it.quantity) || 0, unit_cost: Number(it.unit_cost) || 0 })))
+        const { error: insError } = await supabase.from('purchase_items').insert(
+          valid.map((it) => ({
+            event_id: eventId,
+            item_name: it.item_name.trim(),
+            quantity: Number(it.quantity) || 0,
+            unit_cost: Math.round(Number(it.unit_cost) || 0),
+          }))
+        )
+        if (insError) throw new Error('品目保存エラー: ' + insError.message)
       }
+
       await fetchMarcheData(currentMarche.id)
       setEventModal(null)
       showToast(ev.id ? '更新しました ✓' : '追加しました ✓')
-    } catch (e: any) { showToast('エラー: ' + String(e?.message ?? e).slice(0,40), 'error'); console.error(e) }
-    finally { setSaving(false) }
+    } catch (e: any) {
+      const msg = String(e?.message ?? e)
+      showToast(msg.slice(0, 60), 'error')
+      console.error('handleSaveEvent error:', e)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // 出展者保存
