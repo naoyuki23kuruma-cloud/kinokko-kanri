@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { calcEvent, calcMarcheSummary, fmt, pct, bep, exportSettlementCSV } from '@/lib/calc'
 import type { Event, Exhibitor, OtherExpense, Marche } from '@/lib/types'
@@ -444,6 +444,14 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
   const [feeTarget, setFeeTarget] = useState(exhibitor.fee_target != null ? String(exhibitor.fee_target) : '')
   const [feeActual, setFeeActual] = useState(exhibitor.fee_actual != null ? String(exhibitor.fee_actual) : '')
   const [notes, setNotes] = useState(exhibitor.notes ?? '')
+  const feeTargetRef = useRef<HTMLInputElement>(null)
+  const feeActualRef = useRef<HTMLInputElement>(null)
+  const notesRef = useRef<HTMLTextAreaElement>(null)
+
+  const doSave = async () => {
+    if (!name.trim()) { alert('出展者名を入力してください'); return }
+    await onSave({ id: exhibitor.id, name: name.trim(), fee_target: Number(feeTarget) || 0, fee_actual: feeActual !== '' ? Number(feeActual) : null, notes: notes.trim() })
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-40 flex flex-col">
@@ -455,30 +463,35 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
         <div className="p-4 space-y-4 pb-36">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">出展者名 *</label>
-            <input type="text"
+            <input
+              type="text" inputMode="text"
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-              lang="ja" placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-fee-target')?.focus() } }}
+              placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); feeTargetRef.current?.focus() } }}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">目標出展料（円）</label>
-              <input type="text" inputMode="numeric" pattern="[0-9]*" id="ex-fee-target"
+              <input
+                ref={feeTargetRef}
+                type="text" inputMode="numeric" pattern="[0-9]*"
                 autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={feeTarget} placeholder="0"
                 onChange={(e) => setFeeTarget(e.target.value.replace(/[^0-9]/g, ''))}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-fee-actual')?.focus() } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); feeActualRef.current?.focus() } }}
                 className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">実績出展料（円）</label>
-              <input type="text" inputMode="numeric" pattern="[0-9]*" id="ex-fee-actual"
+              <input
+                ref={feeActualRef}
+                type="text" inputMode="numeric" pattern="[0-9]*"
                 autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={feeActual} placeholder="未入力"
                 onChange={(e) => setFeeActual(e.target.value.replace(/[^0-9]/g, ''))}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-notes')?.focus() } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); notesRef.current?.focus() } }}
                 className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -491,14 +504,15 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">備考</label>
             <textarea
+              ref={notesRef}
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('ex-save-btn')?.click() } }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave() } }}
             />
           </div>
         </div>
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 max-w-2xl mx-auto">
-          <button id="ex-save-btn" onClick={async () => { if (!name.trim()) { alert('出展者名を入力してください'); return } await onSave({ id: exhibitor.id, name: name.trim(), fee_target: Number(feeTarget) || 0, fee_actual: feeActual !== '' ? Number(feeActual) : null, notes: notes.trim() }) }} disabled={saving} className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-4 rounded-xl text-base font-bold shadow">
+          <button onClick={doSave} disabled={saving} className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-4 rounded-xl text-base font-bold shadow">
             {saving ? '保存中...' : '💾 保存する'}
           </button>
         </div>
@@ -966,7 +980,7 @@ export default function MarcheApp() {
                     <label className="block text-xs text-gray-500 mb-1">内容</label>
                     <input type="text"
                       className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      lang="ja" placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
+                      inputMode="text" placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('expense-amount')?.focus() } }}
                     />
                   </div>
