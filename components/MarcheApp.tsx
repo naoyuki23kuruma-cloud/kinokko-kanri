@@ -178,11 +178,26 @@ function EventModal({ event, onSave, onClose, saving }: {
       const qty = Number(item.quantity) || 0
       const cost = Number(item.unit_cost) || 0
       const amt = Number(item.amount) || 0
-      if (k === 'quantity' || k === 'unit_cost') {
+
+      if (k === 'quantity') {
+        // 数量が変わった時
+        if (qty > 0) {
+          if (amt > 0) {
+            // 金額が先に入力済み → 単価を自動計算
+            item.unit_cost = String(applyRound(amt / qty, roundMode))
+          } else if (cost > 0) {
+            // 単価が先に入力済み → 金額を自動計算
+            item.amount = String(qty * cost)
+          }
+        }
+      } else if (k === 'unit_cost') {
+        // 単価が変わった時 → 金額を自動計算
         if (qty > 0 && cost > 0) item.amount = String(qty * cost)
       } else if (k === 'amount') {
+        // 金額が変わった時 → 数量があれば単価を自動計算
         if (amt > 0 && qty > 0) item.unit_cost = String(applyRound(amt / qty, roundMode))
       }
+
       next[idx] = item
       return next
     })
