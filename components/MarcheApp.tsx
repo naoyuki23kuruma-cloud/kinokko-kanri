@@ -149,13 +149,14 @@ function MarcheSelectModal({ marches, onSelect, onCreate, onToggleStatus, onDele
               <label className="block text-xs text-gray-500 mb-1">マルシェ名 *</label>
               <input type="text" autoComplete="off"
                 className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="例：2025年夏祭りマルシェ" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                placeholder="例：2025年夏祭りマルシェ" value={newName} onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('marche-date')?.focus() } }} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">開催日</label>
               <input type="date"
                 className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+                id="marche-date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">企画メモ（任意）</label>
@@ -454,11 +455,33 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
         <div className="p-4 space-y-4 pb-36">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">出展者名 *</label>
-            <input type="text" autoComplete="off" className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)} />
+            <input type="text" autoComplete="off"
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-fee-target')?.focus() } }}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">目標出展料（円）</label><NumInput value={feeTarget} onChange={setFeeTarget} className="w-full rounded-xl px-4 py-3 text-base" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">実績出展料（円）</label><NumInput value={feeActual} onChange={setFeeActual} placeholder="未入力" className="w-full rounded-xl px-4 py-3 text-base" /></div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">目標出展料（円）</label>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" id="ex-fee-target"
+                autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                value={feeTarget} placeholder="0"
+                onChange={(e) => setFeeTarget(e.target.value.replace(/[^0-9]/g, ''))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-fee-actual')?.focus() } }}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">実績出展料（円）</label>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" id="ex-fee-actual"
+                autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                value={feeActual} placeholder="未入力"
+                onChange={(e) => setFeeActual(e.target.value.replace(/[^0-9]/g, ''))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-notes')?.focus() } }}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
           </div>
           {feeTarget !== '' && feeActual !== '' && (
             <div className={`rounded-xl p-3 text-sm ${Number(feeActual) >= Number(feeTarget) ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
@@ -940,7 +963,13 @@ export default function MarcheApp() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">金額（円）</label>
-                    <NumInput value={newExpenseAmt} onChange={setNewExpenseAmt} className="w-full rounded-xl px-3 py-2.5 text-sm" />
+                    <input type="text" inputMode="numeric" pattern="[0-9]*" id="expense-amount"
+                    autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    value={newExpenseAmt} placeholder="0"
+                    onChange={(e) => setNewExpenseAmt(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddExpense() } }}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
                   </div>
                   <button onClick={handleAddExpense} disabled={saving}
                     className="w-full py-3 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:bg-blue-300">
