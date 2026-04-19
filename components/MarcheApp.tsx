@@ -6,9 +6,9 @@ import { calcEvent, calcMarcheSummary, fmt, pct, bep, exportSettlementCSV } from
 import type { Event, Exhibitor, OtherExpense, Marche } from '@/lib/types'
 
 type RoundMode = 'round' | 'floor' | 'ceil'
-const roundLabel: Record<RoundMode, string> = { round: '四捨五入', floor: '切り捨て', ceil: '切り上げ' }
+const roundLabel: Record<RoundMode, string> = { round: '端数処理なし', floor: '切り捨て（1円）', ceil: '切り上げ（1円）' }
 function applyRound(n: number, mode: RoundMode) {
-  if (mode === 'round') return Math.round(n)
+  if (mode === 'round') return n  // 端数処理なし（小数点のまま保持→保存時に整数化）
   if (mode === 'floor') return Math.floor(n)
   return Math.ceil(n)
 }
