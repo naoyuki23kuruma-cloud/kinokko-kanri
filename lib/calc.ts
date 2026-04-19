@@ -2,7 +2,7 @@ import type { Event, EventCalc, Exhibitor, OtherExpense } from './types'
 
 export function calcEvent(ev: Event): EventCalc {
   const items = ev.purchase_items ?? []
-  const costTotal = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_cost) || 0), 0)
+  const costTotal = items.reduce((s, it) => s + (it.amount_override != null ? Number(it.amount_override) : (Number(it.quantity) || 0) * (Number(it.unit_cost) || 0)), 0)
   const targetSales = (Number(ev.selling_price) || 0) * (Number(ev.target_quantity) || 0)
   const grossProfit = targetSales - costTotal
   const grossMargin = targetSales > 0 ? grossProfit / targetSales : null
