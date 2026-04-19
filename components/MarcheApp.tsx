@@ -350,7 +350,7 @@ function EventModal({ event, onSave, onClose, saving }: {
                       <span className="text-xs text-gray-400">品目 {idx + 1}</span>
                       {items.length > 1 && <button onClick={() => setItems((p) => p.filter((_, i) => i !== idx))} className="text-red-400 text-sm">削除</button>}
                     </div>
-                    <input type="text" autoComplete="off"
+                    <input type="text"
                       id={`ev-item-name-${idx}`}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
                       placeholder="品目名" value={item.item_name}
@@ -455,7 +455,7 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
         <div className="p-4 space-y-4 pb-36">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">出展者名 *</label>
-            <input type="text" autoComplete="off"
+            <input type="text"
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-fee-target')?.focus() } }}
@@ -957,9 +957,11 @@ export default function MarcheApp() {
                   <h3 className="text-sm font-bold text-gray-700">＋ 経費を追加</h3>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">内容</label>
-                    <input type="text" autoComplete="off"
+                    <input type="text"
                       className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)} />
+                      placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('expense-amount')?.focus() } }}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">金額（円）</label>
