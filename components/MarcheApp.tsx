@@ -198,7 +198,7 @@ function EventModal({ event, onSave, onClose, saving }: {
   const [roundMode, setRoundMode] = useState<RoundMode>('round')
   const [items, setItems] = useState<DraftItem[]>(
     event.purchase_items && event.purchase_items.length > 0
-      ? event.purchase_items.map((it) => ({ id: it.id, item_name: it.item_name, quantity: String(it.quantity), unit_cost: String(it.unit_cost), amount: String(it.quantity * it.unit_cost), amountLocked: false }))
+      ? event.purchase_items.map((it) => ({ id: it.id, item_name: it.item_name, quantity: String(it.quantity), unit_cost: String(it.unit_cost), amount: it.amount_override != null ? String(it.amount_override) : String(it.quantity * it.unit_cost), amountLocked: it.amount_override != null }))
       : [newDraftItem()]
   )
 
@@ -399,7 +399,14 @@ function EventModal({ event, onSave, onClose, saving }: {
                         />
                       </div>
                     </div>
-                    {qty > 0 && cost > 0 && <div className="text-xs text-gray-400 text-right">{qty}個 × ¥{cost.toLocaleString()} = ¥{(qty * cost).toLocaleString()}</div>}
+                    {qty > 0 && cost > 0 && (
+                      <div className="text-xs text-right">
+                        {item.amountLocked && item.amount !== ''
+                          ? <span className="text-blue-500">💰 金額 ¥{Number(item.amount).toLocaleString()} を使用（単価¥{cost}×{qty}個=¥{(qty*cost).toLocaleString()}）</span>
+                          : <span className="text-gray-400">{qty}個 × ¥{cost.toLocaleString()} = ¥{(qty * cost).toLocaleString()}</span>
+                        }
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -618,6 +625,7 @@ export default function MarcheApp() {
             item_name: it.item_name.trim(),
             quantity: Number(it.quantity) || 0,
             unit_cost: Math.round(Number(it.unit_cost) || 0),
+            amount_override: it.amountLocked && it.amount !== '' ? Number(it.amount) : null,
           }))
         )
         if (insError) throw new Error('品目保存エラー: ' + insError.message)
