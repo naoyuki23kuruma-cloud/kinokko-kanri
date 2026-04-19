@@ -275,7 +275,7 @@ function EventModal({ event, onSave, onClose, saving }: {
                 <input
                   type="text" autoComplete="off" id="ev-name"
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="例：ヨーヨー釣り" value={name} onChange={(e) => setName(e.target.value)}
+                  lang="ja" placeholder="例：ヨーヨー釣り" value={name} onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-price')?.focus() } }}
                 />
               </div>
@@ -353,7 +353,7 @@ function EventModal({ event, onSave, onClose, saving }: {
                     <input type="text"
                       id={`ev-item-name-${idx}`}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      placeholder="品目名" value={item.item_name}
+                      lang="ja" placeholder="品目名" value={item.item_name}
                       onChange={(e) => setItemField(idx, 'item_name', e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-qty-${idx}`)?.focus() } }}
                     />
@@ -457,7 +457,7 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
             <label className="block text-sm font-medium text-gray-700 mb-1">出展者名 *</label>
             <input type="text"
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
+              lang="ja" placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ex-fee-target')?.focus() } }}
             />
           </div>
@@ -488,10 +488,17 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
               {Number(feeActual) >= Number(feeTarget) ? '✅ 目標達成' : '⚠ 目標未達'} （差額 {fmt(Number(feeActual) - Number(feeTarget))}）
             </div>
           )}
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">備考</label><textarea className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">備考</label>
+            <textarea
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('ex-save-btn')?.click() } }}
+            />
+          </div>
         </div>
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 max-w-2xl mx-auto">
-          <button onClick={async () => { if (!name.trim()) { alert('出展者名を入力してください'); return } await onSave({ id: exhibitor.id, name: name.trim(), fee_target: Number(feeTarget) || 0, fee_actual: feeActual !== '' ? Number(feeActual) : null, notes: notes.trim() }) }} disabled={saving} className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-4 rounded-xl text-base font-bold shadow">
+          <button id="ex-save-btn" onClick={async () => { if (!name.trim()) { alert('出展者名を入力してください'); return } await onSave({ id: exhibitor.id, name: name.trim(), fee_target: Number(feeTarget) || 0, fee_actual: feeActual !== '' ? Number(feeActual) : null, notes: notes.trim() }) }} disabled={saving} className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-4 rounded-xl text-base font-bold shadow">
             {saving ? '保存中...' : '💾 保存する'}
           </button>
         </div>
@@ -959,7 +966,7 @@ export default function MarcheApp() {
                     <label className="block text-xs text-gray-500 mb-1">内容</label>
                     <input type="text"
                       className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
+                      lang="ja" placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('expense-amount')?.focus() } }}
                     />
                   </div>
