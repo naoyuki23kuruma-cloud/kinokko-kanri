@@ -6,16 +6,16 @@ import { calcEvent, calcMarcheSummary, fmt, pct, bep, exportSettlementCSV } from
 import type { Event, Exhibitor, OtherExpense, Marche } from '@/lib/types'
 
 type RoundMode = 'round' | 'floor' | 'ceil'
-const roundLabel: Record<RoundMode, string> = { round: '端数処理なし', floor: '切り捨て（1円）', ceil: '切り上げ（1円）' }
+const roundLabel: Record<RoundMode, string> = { round: '四捨五入（1円）', floor: '切り捨て（1円）', ceil: '切り上げ（1円）' }
 function applyRound(n: number, mode: RoundMode) {
-  if (mode === 'round') return n  // 端数処理なし（小数点のまま保持→保存時に整数化）
-  if (mode === 'floor') return Math.floor(n)
-  return Math.ceil(n)
+  if (mode === 'round') return Math.round(n)  // 四捨五入（1円単位）
+  if (mode === 'floor') return Math.floor(n)   // 切り捨て（1円単位）
+  return Math.ceil(n)                          // 切り上げ（1円単位）
 }
 
 type Tab = 'dashboard' | 'events' | 'exhibitors' | 'expenses' | 'settlement'
-type DraftItem = { id: string; item_name: string; quantity: string; unit_cost: string; amount: string }
-const newDraftItem = (): DraftItem => ({ id: crypto.randomUUID(), item_name: '', quantity: '', unit_cost: '', amount: '' })
+type DraftItem = { id: string; item_name: string; quantity: string; unit_cost: string; amount: string; amountLocked: boolean }
+const newDraftItem = (): DraftItem => ({ id: crypto.randomUUID(), item_name: '', quantity: '', unit_cost: '', amount: '', amountLocked: false })
 
 // ─── 共通UI ───────────────────────────────────────────────
 function Toast({ msg, type, onClose }: { msg: string; type: 'success' | 'error'; onClose: () => void }) {
@@ -198,7 +198,7 @@ function EventModal({ event, onSave, onClose, saving }: {
   const [roundMode, setRoundMode] = useState<RoundMode>('round')
   const [items, setItems] = useState<DraftItem[]>(
     event.purchase_items && event.purchase_items.length > 0
-      ? event.purchase_items.map((it) => ({ id: it.id, item_name: it.item_name, quantity: String(it.quantity), unit_cost: String(it.unit_cost), amount: String(it.quantity * it.unit_cost) }))
+      ? event.purchase_items.map((it) => ({ id: it.id, item_name: it.item_name, quantity: String(it.quantity), unit_cost: String(it.unit_cost), amount: String(it.quantity * it.unit_cost), amountLocked: false }))
       : [newDraftItem()]
   )
 
@@ -210,23 +210,29 @@ function EventModal({ event, onSave, onClose, saving }: {
       const cost = Number(item.unit_cost) || 0
       const amt = Number(item.amount) || 0
 
-      if (k === 'quantity') {
+      if (k === 'amount') {
+        // 金額を手入力 → ロック設定＋数量があれば単価を自動計算
+        item.amountLocked = amt > 0
+        if (amt > 0 && qty > 0) {
+          item.unit_cost = String(applyRound(amt / qty, roundMode))
+        }
+      } else if (k === 'quantity') {
         // 数量が変わった時
         if (qty > 0) {
-          if (amt > 0) {
-            // 金額が先に入力済み → 単価を自動計算
+          if (item.amountLocked && amt > 0) {
+            // 金額がロック済み → 単価を再計算
             item.unit_cost = String(applyRound(amt / qty, roundMode))
           } else if (cost > 0) {
-            // 単価が先に入力済み → 金額を自動計算
+            // 単価が入力済み → 金額を計算（ロックしない）
             item.amount = String(qty * cost)
+            item.amountLocked = false
           }
         }
       } else if (k === 'unit_cost') {
-        // 単価が変わった時 → 金額を自動計算
-        if (qty > 0 && cost > 0) item.amount = String(qty * cost)
-      } else if (k === 'amount') {
-        // 金額が変わった時 → 数量があれば単価を自動計算
-        if (amt > 0 && qty > 0) item.unit_cost = String(applyRound(amt / qty, roundMode))
+        // 単価を手入力 → 金額がロックされていない場合のみ金額を計算
+        if (!item.amountLocked && qty > 0 && cost > 0) {
+          item.amount = String(qty * cost)
+        }
       }
 
       next[idx] = item
@@ -265,16 +271,35 @@ function EventModal({ event, onSave, onClose, saving }: {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">催し物名 *</label>
-                <input type="text" autoComplete="off" className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="例：ヨーヨー釣り" value={name} onChange={(e) => setName(e.target.value)} />
+                <input
+                  type="text" autoComplete="off" id="ev-name"
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="例：ヨーヨー釣り" value={name} onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-price')?.focus() } }}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">販売単価（円）</label>
-                  <NumInput value={sellingPrice} onChange={setSellingPrice} className="w-full rounded-xl px-4 py-3 text-base" />
+                  <input
+                    type="text" inputMode="numeric" pattern="[0-9]*" id="ev-price"
+                    autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    value={sellingPrice} placeholder="0"
+                    onChange={(e) => setSellingPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-qty')?.focus() } }}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">目標個数</label>
-                  <NumInput value={targetQty} onChange={setTargetQty} className="w-full rounded-xl px-4 py-3 text-base" />
+                  <input
+                    type="text" inputMode="numeric" pattern="[0-9]*" id="ev-qty"
+                    autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    value={targetQty} placeholder="0"
+                    onChange={(e) => setTargetQty(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-notes')?.focus() } }}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
                 </div>
               </div>
               <div>
@@ -324,11 +349,55 @@ function EventModal({ event, onSave, onClose, saving }: {
                       <span className="text-xs text-gray-400">品目 {idx + 1}</span>
                       {items.length > 1 && <button onClick={() => setItems((p) => p.filter((_, i) => i !== idx))} className="text-red-400 text-sm">削除</button>}
                     </div>
-                    <input type="text" autoComplete="off" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="品目名" value={item.item_name} onChange={(e) => setItemField(idx, 'item_name', e.target.value)} />
+                    <input type="text" autoComplete="off"
+                      id={`ev-item-name-${idx}`}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      placeholder="品目名" value={item.item_name}
+                      onChange={(e) => setItemField(idx, 'item_name', e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-qty-${idx}`)?.focus() } }}
+                    />
                     <div className="grid grid-cols-3 gap-2">
-                      <div><label className="text-xs text-gray-500 mb-1 block">数量</label><NumInput value={item.quantity} onChange={(v) => setItemField(idx, 'quantity', v)} className="w-full" /></div>
-                      <div><label className="text-xs text-gray-500 mb-1 block">単価（円）</label><NumInput value={item.unit_cost} onChange={(v) => setItemField(idx, 'unit_cost', v)} className="w-full" /></div>
-                      <div><label className="text-xs text-gray-500 mb-1 block">金額（円）</label><NumInput value={item.amount} onChange={(v) => setItemField(idx, 'amount', v)} className="w-full" /></div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">数量</label>
+                        <input type="text" inputMode="numeric" pattern="[0-9]*"
+                          id={`ev-item-qty-${idx}`}
+                          autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                          value={item.quantity} placeholder="0"
+                          onChange={(e) => setItemField(idx, 'quantity', e.target.value.replace(/[^0-9]/g, ''))}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-cost-${idx}`)?.focus() } }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">単価（円）</label>
+                        <input type="text" inputMode="numeric" pattern="[0-9]*"
+                          id={`ev-item-cost-${idx}`}
+                          autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                          value={item.unit_cost} placeholder="0"
+                          onChange={(e) => setItemField(idx, 'unit_cost', e.target.value.replace(/[^0-9]/g, ''))}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-amt-${idx}`)?.focus() } }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">金額（円）</label>
+                        <input type="text" inputMode="numeric" pattern="[0-9]*"
+                          id={`ev-item-amt-${idx}`}
+                          autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                          value={item.amount} placeholder="0"
+                          onChange={(e) => setItemField(idx, 'amount', e.target.value.replace(/[^0-9]/g, ''))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              // 次の品目の品目名へ、なければ新品目追加
+                              const nextName = document.getElementById(`ev-item-name-${idx + 1}`)
+                              if (nextName) { nextName.focus() }
+                              else { setItems((p) => [...p, newDraftItem()]); setTimeout(() => document.getElementById(`ev-item-name-${idx + 1}`)?.focus(), 50) }
+                            }
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                      </div>
                     </div>
                     {qty > 0 && cost > 0 && <div className="text-xs text-gray-400 text-right">{qty}個 × ¥{cost.toLocaleString()} = ¥{(qty * cost).toLocaleString()}</div>}
                   </div>
