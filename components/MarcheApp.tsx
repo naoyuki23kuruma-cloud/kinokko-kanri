@@ -8,16 +8,16 @@ import type { Event, Exhibitor, OtherExpense, Marche } from '@/lib/types'
 type RoundMode = 'round' | 'floor' | 'ceil'
 const roundLabel: Record<RoundMode, string> = { round: '四捨五入（1円）', floor: '切り捨て（1円）', ceil: '切り上げ（1円）' }
 function applyRound(n: number, mode: RoundMode) {
-  if (mode === 'round') return Math.round(n)  // 四捨五入（1円単位）
-  if (mode === 'floor') return Math.floor(n)   // 切り捨て（1円単位）
-  return Math.ceil(n)                          // 切り上げ（1円単位）
+  if (mode === 'round') return Math.round(n)
+  if (mode === 'floor') return Math.floor(n)
+  return Math.ceil(n)
 }
 
 type Tab = 'dashboard' | 'events' | 'exhibitors' | 'expenses' | 'settlement' | 'settings'
 type DraftItem = { id: string; item_name: string; quantity: string; unit_cost: string; amount: string; amountLocked: boolean }
 const newDraftItem = (): DraftItem => ({ id: crypto.randomUUID(), item_name: '', quantity: '', unit_cost: '', amount: '', amountLocked: false })
 
-// ─── 共通UI ───────────────────────────────────────────────
+// ─── Toast ────────────────────────────────────────────────
 function Toast({ msg, type, onClose }: { msg: string; type: 'success' | 'error'; onClose: () => void }) {
   useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t) }, [onClose])
   return (
@@ -27,6 +27,7 @@ function Toast({ msg, type, onClose }: { msg: string; type: 'success' | 'error';
   )
 }
 
+// ─── Confirm ──────────────────────────────────────────────
 function Confirm({ message, onOk, onCancel }: { message: string; onOk: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -38,20 +39,6 @@ function Confirm({ message, onOk, onCancel }: { message: string; onOk: () => voi
         </div>
       </div>
     </div>
-  )
-}
-
-function NumInput({ value, onChange, placeholder = '0', className = '', onEnter }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; className?: string; onEnter?: () => void
-}) {
-  return (
-    <input type="text" inputMode="numeric" pattern="[0-9]*"
-      autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-      value={value} placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, ''))}
-      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter ? onEnter() : (e.target as HTMLElement).closest('.item-row')?.querySelectorAll('input')[Array.from((e.target as HTMLElement).closest('.item-row')?.querySelectorAll('input') ?? []).indexOf(e.target as HTMLInputElement) + 1]?.focus() } }}
-      className={`border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 ${className}`}
-    />
   )
 }
 
@@ -74,7 +61,7 @@ function MiniStat({ label, value, color = 'text-gray-800', bg = 'bg-gray-50' }: 
   )
 }
 
-// ─── マルシェ選択・作成モーダル ───────────────────────────
+// ─── マルシェ選択モーダル ──────────────────────────────────
 function MarcheSelectModal({ marches, onSelect, onCreate, onToggleStatus, onDelete, onClose }: {
   marches: Marche[]
   onSelect: (m: Marche) => void
@@ -100,81 +87,97 @@ function MarcheSelectModal({ marches, onSelect, onCreate, onToggleStatus, onDele
     setSaving(false)
   }
 
+  const MarcheCard = ({ m }: { m: Marche }) => (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
+      <button onClick={() => onSelect(m)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
+        <div className="font-bold text-gray-900 text-sm">{m.name}</div>
+        <div className="flex gap-3 text-xs text-gray-400 mt-1">
+          <span>{m.date ?? '日付未設定'}</span>
+          <span className={`px-2 py-0.5 rounded-full ${m.status === 'closed' ? 'bg-gray-200 text-gray-500' : 'bg-green-100 text-green-700'}`}>
+            {m.status === 'closed' ? '終了' : '開催予定'}
+          </span>
+        </div>
+        {(m as any).notes && <p className="text-xs text-gray-500 mt-1">{(m as any).notes}</p>}
+      </button>
+      <div className="flex border-t border-gray-200">
+        <button onClick={(e) => { e.stopPropagation(); onToggleStatus(m) }}
+          className={`flex-1 py-2 text-xs font-medium ${m.status === 'closed' ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-gray-500 bg-gray-100 hover:bg-gray-200'}`}>
+          {m.status === 'closed' ? '🔄 再開' : '✅ 終了にする'}
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onDelete(m) }}
+          className="flex-1 py-2 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 border-l border-gray-200">
+          🗑 削除
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex flex-col items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden">
-        <div className="bg-blue-600 text-white px-5 py-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="bg-blue-600 text-white px-5 py-4 shrink-0">
           <h2 className="text-lg font-bold">🎪 マルシェを選択</h2>
           <p className="text-blue-200 text-xs mt-1">管理したいマルシェを選んでください</p>
         </div>
-        <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
-          {marches.length === 0 && !showNew && (
-            <p className="text-gray-400 text-sm text-center py-4">まだマルシェがありません</p>
-          )}
-          {activeMar.length === 0 && closedMar.length > 0 && !showNew && (
-            <p className="text-gray-400 text-sm text-center py-2">開催予定のマルシェはありません</p>
-          )}
-          {activeMar.map((m) => (
-            <div key={m.id} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-              <button onClick={() => onSelect(m)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
-                <div className="font-bold text-gray-900">{m.name}</div>
-                <div className="flex gap-3 text-xs text-gray-400 mt-1">
-                  <span>{m.date ?? '日付未設定'}</span>
-                  <span className={`px-2 py-0.5 rounded-full ${m.status === 'closed' ? 'bg-gray-200 text-gray-500' : 'bg-green-100 text-green-700'}`}>
-                    {m.status === 'closed' ? '終了' : '開催予定'}
-                  </span>
+
+        {!showNew ? (
+          <div className="overflow-y-auto flex-1">
+            <div className="p-4 space-y-3">
+              {marches.length === 0 && (
+                <p className="text-gray-400 text-sm text-center py-4">まだマルシェがありません</p>
+              )}
+              {activeMar.map((m) => <MarcheCard key={m.id} m={m} />)}
+              {closedMar.length > 0 && (
+                <div>
+                  <button onClick={() => setShowClosed(!showClosed)}
+                    className="w-full text-left text-xs text-gray-400 py-2 flex items-center gap-2 hover:text-gray-600">
+                    <span>{showClosed ? '▼' : '▶'}</span>
+                    <span>終了済み（{closedMar.length}件）</span>
+                  </button>
+                  {showClosed && (
+                    <div className="space-y-2 opacity-70">
+                      {closedMar.map((m) => <MarcheCard key={m.id} m={m} />)}
+                    </div>
+                  )}
                 </div>
-                {m.notes && <p className="text-xs text-gray-500 mt-1 text-left">{m.notes}</p>}
-                {(m as any).doc_url && <a href={(m as any).doc_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-xs text-blue-500 underline mt-0.5 block text-left">📎 資料を開く</a>}
-              </button>
-              <div className="flex border-t border-gray-200">
-                <button onClick={(e) => { e.stopPropagation(); onToggleStatus(m) }}
-                  className={`flex-1 py-2 text-xs font-medium ${m.status === 'closed' ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-gray-500 bg-gray-100 hover:bg-gray-200'}`}>
-                  {m.status === 'closed' ? '🔄 開催予定に戻す' : '✅ 終了にする'}
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); onDelete(m) }}
-                  className="flex-1 py-2 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 border-l border-gray-200">
-                  🗑 削除する
-                </button>
-              </div>
+              )}
             </div>
-          )}}
-          <div className="px-4 pb-4">
-            <button onClick={() => setShowNew(true)}
-              className="w-full py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">
-              ＋ 新しいマルシェを作成
-            </button>
+            <div className="px-4 pb-4">
+              <button onClick={() => setShowNew(true)}
+                className="w-full py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">
+                ＋ 新しいマルシェを作成
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="px-4 pb-4 space-y-3 border-t pt-4">
+          <div className="p-4 space-y-3 overflow-y-auto flex-1">
             <h3 className="text-sm font-bold text-gray-700">新規マルシェを作成</h3>
             <div>
               <label className="block text-xs text-gray-500 mb-1">マルシェ名 *</label>
-              <input type="text" autoComplete="off"
+              <input type="text"
                 className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="例：2025年夏祭りマルシェ" value={newName} onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('marche-date')?.focus() } }} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">開催日</label>
-              <input type="date"
+              <input type="date" id="marche-date"
                 className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                id="marche-date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+                value={newDate} onChange={(e) => setNewDate(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">企画メモ（任意）</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <textarea className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={2} placeholder="企画内容・備考など"
                 value={newNotes} onChange={(e) => setNewNotes(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">資料URL（Google Drive等）</label>
-              <input type="url" autoComplete="off"
+              <input type="url"
                 className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="https://drive.google.com/..." value={newDocUrl} onChange={(e) => setNewDocUrl(e.target.value)} />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-2">
               <button onClick={() => setShowNew(false)} className="flex-1 py-2.5 rounded-xl border border-gray-300 text-gray-600 text-sm">戻る</button>
               <button onClick={handleCreate} disabled={saving}
                 className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:bg-blue-300">
@@ -202,9 +205,16 @@ function EventModal({ event, onSave, onClose, saving }: {
   const [roundMode, setRoundMode] = useState<RoundMode>('round')
   const [items, setItems] = useState<DraftItem[]>(
     event.purchase_items && event.purchase_items.length > 0
-      ? event.purchase_items.map((it) => ({ id: it.id, item_name: it.item_name, quantity: String(it.quantity), unit_cost: String(it.unit_cost), amount: it.amount_override != null ? String(it.amount_override) : String(it.quantity * it.unit_cost), amountLocked: it.amount_override != null }))
+      ? event.purchase_items.map((it) => ({
+          id: it.id, item_name: it.item_name, quantity: String(it.quantity), unit_cost: String(it.unit_cost),
+          amount: (it as any).amount_override != null ? String((it as any).amount_override) : String(it.quantity * it.unit_cost),
+          amountLocked: (it as any).amount_override != null
+        }))
       : [newDraftItem()]
   )
+  const priceRef = useRef<HTMLInputElement>(null)
+  const qtyRef = useRef<HTMLInputElement>(null)
+  const notesRef = useRef<HTMLTextAreaElement>(null)
 
   const setItemField = (idx: number, k: keyof DraftItem, v: string) => {
     setItems((prev) => {
@@ -213,52 +223,37 @@ function EventModal({ event, onSave, onClose, saving }: {
       const qty = Number(item.quantity) || 0
       const cost = Number(item.unit_cost) || 0
       const amt = Number(item.amount) || 0
-
       if (k === 'amount') {
-        // 金額を手入力 → ロック設定＋数量があれば単価を自動計算
         item.amountLocked = amt > 0
-        if (amt > 0 && qty > 0) {
-          item.unit_cost = String(applyRound(amt / qty, roundMode))
-        }
+        if (amt > 0 && qty > 0) item.unit_cost = String(applyRound(amt / qty, roundMode))
       } else if (k === 'quantity') {
-        // 数量が変わった時
         if (qty > 0) {
-          if (item.amountLocked && amt > 0) {
-            // 金額がロック済み → 単価を再計算
-            item.unit_cost = String(applyRound(amt / qty, roundMode))
-          } else if (cost > 0) {
-            // 単価が入力済み → 金額を計算（ロックしない）
-            item.amount = String(qty * cost)
-            item.amountLocked = false
-          }
+          if (item.amountLocked && amt > 0) item.unit_cost = String(applyRound(amt / qty, roundMode))
+          else if (cost > 0) { item.amount = String(qty * cost); item.amountLocked = false }
         }
       } else if (k === 'unit_cost') {
-        // 単価を手入力 → 金額がロックされていない場合のみ金額を計算
-        if (!item.amountLocked && qty > 0 && cost > 0) {
-          item.amount = String(qty * cost)
-        }
+        if (!item.amountLocked && qty > 0 && cost > 0) item.amount = String(qty * cost)
       }
-
       next[idx] = item
       return next
     })
   }
 
   const preview: Event = {
-    id: event.id ?? '', name, selling_price: Number(sellingPrice) || 0,
-    target_quantity: Number(targetQty) || 0, notes,
-    purchase_items: items.map((it) => ({ id: it.id, event_id: event.id ?? '', item_name: it.item_name, quantity: Number(it.quantity) || 0, unit_cost: Number(it.unit_cost) || 0 })),
+    id: event.id ?? '', name, selling_price: Number(sellingPrice) || 0, target_quantity: Number(targetQty) || 0, notes,
+    purchase_items: items.map((it) => ({
+      id: it.id, event_id: event.id ?? '', item_name: it.item_name, quantity: Number(it.quantity) || 0,
+      unit_cost: Number(it.unit_cost) || 0, amount_override: it.amountLocked && it.amount !== '' ? Number(it.amount) : null
+    } as any)),
   }
   const c = calcEvent(preview)
 
   const handleSave = async () => {
     if (!name.trim()) { alert('催し物名を入力してください'); return }
     await onSave({
-      id: event.id, name: name.trim(), selling_price: Number(sellingPrice) || 0,
-      target_quantity: Number(targetQty) || 0,
+      id: event.id, name: name.trim(), selling_price: Number(sellingPrice) || 0, target_quantity: Number(targetQty) || 0,
       actual_quantity: actualQty !== '' ? Number(actualQty) : null,
-      actual_sales: actualSales !== '' ? Number(actualSales) : null,
-      notes: notes.trim(),
+      actual_sales: actualSales !== '' ? Number(actualSales) : null, notes: notes.trim(),
     }, items)
   }
 
@@ -275,40 +270,35 @@ function EventModal({ event, onSave, onClose, saving }: {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">催し物名 *</label>
-                <input
-                  type="text" autoComplete="off" id="ev-name"
+                <input type="text" lang="ja" id="ev-name"
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  lang="ja" placeholder="例：ヨーヨー釣り" value={name} onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-price')?.focus() } }}
-                />
+                  placeholder="例：ヨーヨー釣り" value={name} onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); priceRef.current?.focus() } }} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">販売単価（円）</label>
-                  <input
-                    type="text" inputMode="numeric" pattern="[0-9]*" id="ev-price"
+                  <input ref={priceRef} type="text" inputMode="numeric" pattern="[0-9]*"
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                    value={sellingPrice} placeholder="0"
-                    onChange={(e) => setSellingPrice(e.target.value.replace(/[^0-9]/g, ''))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-qty')?.focus() } }}
                     className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
+                    placeholder="0" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); qtyRef.current?.focus() } }} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">目標個数</label>
-                  <input
-                    type="text" inputMode="numeric" pattern="[0-9]*" id="ev-qty"
+                  <input ref={qtyRef} type="text" inputMode="numeric" pattern="[0-9]*"
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                    value={targetQty} placeholder="0"
-                    onChange={(e) => setTargetQty(e.target.value.replace(/[^0-9]/g, ''))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ev-notes')?.focus() } }}
                     className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
+                    placeholder="0" value={targetQty} onChange={(e) => setTargetQty(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); notesRef.current?.focus() } }} />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">備考</label>
-                <textarea className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                <textarea ref={notesRef}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('ev-item-name-0')?.focus() } }} />
               </div>
             </div>
           </section>
@@ -319,11 +309,17 @@ function EventModal({ event, onSave, onClose, saving }: {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">実績販売個数</label>
-                <NumInput value={actualQty} onChange={setActualQty} placeholder="未入力" className="w-full rounded-xl px-4 py-3 text-base" />
+                <input type="text" inputMode="numeric" pattern="[0-9]*"
+                  autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="未入力" value={actualQty} onChange={(e) => setActualQty(e.target.value.replace(/[^0-9]/g, ''))} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">実績売上（円）</label>
-                <NumInput value={actualSales} onChange={setActualSales} placeholder="未入力" className="w-full rounded-xl px-4 py-3 text-base" />
+                <input type="text" inputMode="numeric" pattern="[0-9]*"
+                  autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="未入力" value={actualSales} onChange={(e) => setActualSales(e.target.value.replace(/[^0-9]/g, ''))} />
               </div>
             </div>
           </section>
@@ -348,102 +344,63 @@ function EventModal({ event, onSave, onClose, saving }: {
                 const qty = Number(item.quantity) || 0
                 const cost = Number(item.unit_cost) || 0
                 return (
-                  <div key={item.id} className="item-row bg-gray-50 rounded-xl p-3 space-y-2">
+                  <div key={item.id} className="bg-gray-50 rounded-xl p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-400">品目 {idx + 1}</span>
                       {items.length > 1 && <button onClick={() => setItems((p) => p.filter((_, i) => i !== idx))} className="text-red-400 text-sm">削除</button>}
                     </div>
-                    <input type="text"
-                      id={`ev-item-name-${idx}`}
+                    <input type="text" lang="ja" id={`ev-item-name-${idx}`}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      lang="ja" placeholder="品目名" value={item.item_name}
+                      placeholder="品目名" value={item.item_name}
                       onChange={(e) => setItemField(idx, 'item_name', e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-qty-${idx}`)?.focus() } }}
-                    />
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-qty-${idx}`)?.focus() } }} />
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">数量</label>
-                        <input type="text" inputMode="numeric" pattern="[0-9]*"
-                          id={`ev-item-qty-${idx}`}
+                        <input type="text" inputMode="numeric" pattern="[0-9]*" id={`ev-item-qty-${idx}`}
                           autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                           value={item.quantity} placeholder="0"
                           onChange={(e) => setItemField(idx, 'quantity', e.target.value.replace(/[^0-9]/g, ''))}
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-cost-${idx}`)?.focus() } }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
                       </div>
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">単価（円）</label>
-                        <input type="text" inputMode="numeric" pattern="[0-9]*"
-                          id={`ev-item-cost-${idx}`}
+                        <input type="text" inputMode="numeric" pattern="[0-9]*" id={`ev-item-cost-${idx}`}
                           autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                           value={item.unit_cost} placeholder="0"
                           onChange={(e) => setItemField(idx, 'unit_cost', e.target.value.replace(/[^0-9]/g, ''))}
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(`ev-item-amt-${idx}`)?.focus() } }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
                       </div>
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">金額（円）</label>
-                        <input type="text" inputMode="numeric" pattern="[0-9]*"
-                          id={`ev-item-amt-${idx}`}
+                        <input type="text" inputMode="numeric" pattern="[0-9]*" id={`ev-item-amt-${idx}`}
                           autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                           value={item.amount} placeholder="0"
                           onChange={(e) => setItemField(idx, 'amount', e.target.value.replace(/[^0-9]/g, ''))}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault()
-                              // 次の品目の品目名へ、なければ新品目追加
-                              const nextName = document.getElementById(`ev-item-name-${idx + 1}`)
-                              if (nextName) { nextName.focus() }
+                              const next = document.getElementById(`ev-item-name-${idx + 1}`)
+                              if (next) { next.focus() }
                               else { setItems((p) => [...p, newDraftItem()]); setTimeout(() => document.getElementById(`ev-item-name-${idx + 1}`)?.focus(), 50) }
                             }
                           }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
                       </div>
                     </div>
                     {qty > 0 && cost > 0 && (
                       <div className="text-xs text-right">
                         {item.amountLocked && item.amount !== ''
-                          ? <span className="text-blue-500">💰 金額 ¥{Number(item.amount).toLocaleString()} を使用（単価¥{cost}×{qty}個=¥{(qty*cost).toLocaleString()}）</span>
+                          ? <span className="text-blue-500">💰 金額¥{Number(item.amount).toLocaleString()}を使用（{qty}×¥{cost}=¥{(qty * cost).toLocaleString()}）</span>
                           : <span className="text-gray-400">{qty}個 × ¥{cost.toLocaleString()} = ¥{(qty * cost).toLocaleString()}</span>
                         }
                       </div>
                     )}
                   </div>
                 )
-              ))}
-          {closedMar.length > 0 && (
-            <div>
-              <button onClick={() => setShowClosed(!showClosed)}
-                className="w-full text-left text-xs text-gray-400 py-2 flex items-center gap-2 hover:text-gray-600">
-                <span>{showClosed ? '▼' : '▶'}</span>
-                <span>終了済み（{closedMar.length}件）</span>
-              </button>
-              {showClosed && closedMar.map((m) => (
-                <div key={m.id} className="bg-gray-100 border border-gray-200 rounded-xl overflow-hidden mt-2 opacity-70">
-                  <button onClick={() => onSelect(m)} className="w-full text-left px-4 py-3 hover:bg-gray-200 transition-colors">
-                    <div className="font-medium text-gray-700 text-sm">{m.name}</div>
-                    <div className="flex gap-3 text-xs text-gray-400 mt-1">
-                      <span>{m.date ?? '日付未設定'}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-500">終了</span>
-                    </div>
-                  </button>
-                  <div className="flex border-t border-gray-200">
-                    <button onClick={(e) => { e.stopPropagation(); onToggleStatus(m) }}
-                      className="flex-1 py-2 text-xs font-medium text-green-600 bg-green-50 hover:bg-green-100">
-                      🔄 開催予定に戻す
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(m) }}
-                      className="flex-1 py-2 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 border-l border-gray-200">
-                      🗑 削除する
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+              })}
               <button onClick={() => setItems((p) => [...p, newDraftItem()])} className="w-full py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">＋ 品目を追加</button>
             </div>
           </section>
@@ -458,7 +415,6 @@ function EventModal({ event, onSave, onClose, saving }: {
             </div>
           </section>
         </div>
-
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 max-w-2xl mx-auto">
           <button onClick={handleSave} disabled={saving} className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-4 rounded-xl text-base font-bold shadow">
             {saving ? '保存中...' : '💾 保存する'}
@@ -496,37 +452,29 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
         <div className="p-4 space-y-4 pb-36">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">出展者名 *</label>
-            <input
-              type="text" inputMode="text"
+            <input type="text" inputMode="text"
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="例：キッチンカーA" value={name} onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); feeTargetRef.current?.focus() } }}
-            />
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); feeTargetRef.current?.focus() } }} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">目標出展料（円）</label>
-              <input
-                ref={feeTargetRef}
-                type="text" inputMode="numeric" pattern="[0-9]*"
+              <input ref={feeTargetRef} type="text" inputMode="numeric" pattern="[0-9]*"
                 autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={feeTarget} placeholder="0"
                 onChange={(e) => setFeeTarget(e.target.value.replace(/[^0-9]/g, ''))}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); feeActualRef.current?.focus() } }}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">実績出展料（円）</label>
-              <input
-                ref={feeActualRef}
-                type="text" inputMode="numeric" pattern="[0-9]*"
+              <input ref={feeActualRef} type="text" inputMode="numeric" pattern="[0-9]*"
                 autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={feeActual} placeholder="未入力"
                 onChange={(e) => setFeeActual(e.target.value.replace(/[^0-9]/g, ''))}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); notesRef.current?.focus() } }}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-400" />
             </div>
           </div>
           {feeTarget !== '' && feeActual !== '' && (
@@ -536,12 +484,10 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">備考</label>
-            <textarea
-              ref={notesRef}
+            <textarea ref={notesRef}
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave() } }}
-            />
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave() } }} />
           </div>
         </div>
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 max-w-2xl mx-auto">
@@ -554,16 +500,15 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
   )
 }
 
-
 // ─── マルシェ設定パネル ───────────────────────────────────
 function MarcheSettingsPanel({ marche, onUpdate }: {
   marche: Marche
-  onUpdate: (updated: Partial<Marche> & { doc_url?: string }) => Promise<void>
+  onUpdate: (updated: any) => Promise<void>
 }) {
   const [name, setName] = useState(marche.name)
   const [date, setDate] = useState(marche.date ?? '')
-  const [notes, setNotes] = useState(marche.notes ?? '')
-  const [docUrls, setDocUrls] = useState<{id: string; label: string; url: string}[]>([])
+  const [notes, setNotes] = useState((marche as any).notes ?? '')
+  const [docUrls, setDocUrls] = useState<{ id: string; label: string; url: string }[]>([])
   const [newLabel, setNewLabel] = useState('')
   const [newUrl, setNewUrl] = useState('')
   const [saving, setSaving] = useState(false)
@@ -573,21 +518,13 @@ function MarcheSettingsPanel({ marche, onUpdate }: {
     try {
       const stored = (marche as any).doc_urls
       if (stored) setDocUrls(JSON.parse(stored))
-      else if ((marche as any).doc_url) {
-        setDocUrls([{ id: '1', label: '資料', url: (marche as any).doc_url }])
-      }
+      else if ((marche as any).doc_url) setDocUrls([{ id: '1', label: '資料', url: (marche as any).doc_url }])
     } catch { }
   }, [marche.id])
 
   const handleSave = async () => {
     setSaving(true)
-    await onUpdate({
-      name: name.trim() || marche.name,
-      date: date || null,
-      notes: notes.trim(),
-      doc_url: docUrls.length > 0 ? docUrls[0].url : '',
-      doc_urls: JSON.stringify(docUrls),
-    } as any)
+    await onUpdate({ name: name.trim() || marche.name, date: date || null, notes: notes.trim(), doc_url: docUrls.length > 0 ? docUrls[0].url : null, doc_urls: JSON.stringify(docUrls) })
     setSaving(false)
   }
 
@@ -597,13 +534,10 @@ function MarcheSettingsPanel({ marche, onUpdate }: {
     setNewLabel(''); setNewUrl('')
   }
 
-  const removeLink = (id: string) => setDocUrls(prev => prev.filter(d => d.id !== id))
-
   return (
     <div className="space-y-5">
       <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">マルシェ設定</h2>
 
-      {/* 基本情報 */}
       <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
         <h3 className="text-sm font-bold text-gray-700">基本情報</h3>
         <div>
@@ -622,7 +556,7 @@ function MarcheSettingsPanel({ marche, onUpdate }: {
           <label className="block text-xs text-gray-500 mb-1">企画メモ</label>
           <textarea
             className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            rows={4} placeholder="企画内容・備考・当日の注意事項など"
+            rows={5} placeholder="企画内容・備考・当日の注意事項など"
             value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
         <button onClick={handleSave} disabled={saving}
@@ -631,44 +565,40 @@ function MarcheSettingsPanel({ marche, onUpdate }: {
         </button>
       </section>
 
-      {/* 資料リンク */}
       <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
         <h3 className="text-sm font-bold text-gray-700">📎 資料リンク</h3>
         <p className="text-xs text-gray-400">Google Drive・Dropbox・OneDriveなどのURLを登録できます</p>
 
-        {/* 登録済みリンク */}
         {docUrls.length > 0 && (
           <div className="space-y-2">
             {docUrls.map((d) => (
               <div key={d.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">{d.label}</div>
+                  <div className="text-sm font-medium text-gray-800">{d.label}</div>
                   <a href={d.url} target="_blank" rel="noopener noreferrer"
                     className="text-xs text-blue-500 underline truncate block">{d.url}</a>
                 </div>
-                <button onClick={() => removeLink(d.id)} className="text-red-400 text-xs px-2 py-1 rounded-lg bg-red-50 shrink-0">削除</button>
+                <button onClick={() => setDocUrls(prev => prev.filter(x => x.id !== d.id))}
+                  className="text-red-400 text-xs px-2 py-1 rounded-lg bg-red-50 shrink-0">削除</button>
               </div>
             ))}
           </div>
         )}
 
-        {/* 新規追加 */}
         <div className="space-y-2 border-t pt-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">ラベル（例：企画書・予算表）</label>
             <input type="text" inputMode="text"
               className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="企画書" value={newLabel} onChange={(e) => setNewLabel(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); newUrlRef.current?.focus() } }}
-            />
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); newUrlRef.current?.focus() } }} />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">URL</label>
             <input ref={newUrlRef} type="url"
               className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="https://drive.google.com/..." value={newUrl} onChange={(e) => setNewUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLink() } }}
-            />
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLink() } }} />
           </div>
           <button onClick={addLink}
             className="w-full py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">
@@ -703,9 +633,9 @@ export default function MarcheApp() {
   const [confirmDelete, setConfirmDelete] = useState<{ type: string; id: string; name: string } | null>(null)
   const [confirmDeleteMarche, setConfirmDeleteMarche] = useState<Marche | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  // その他経費の入力状態
   const [newExpenseDesc, setNewExpenseDesc] = useState('')
   const [newExpenseAmt, setNewExpenseAmt] = useState('')
+  const newExpenseAmtRef = useRef<HTMLInputElement>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -730,42 +660,28 @@ export default function MarcheApp() {
 
   useEffect(() => {
     fetchMarches().then((data) => {
-      if (data.length > 0) {
-        setCurrentMarche(data[0])
-        fetchMarcheData(data[0].id)
-      } else {
-        setShowMarcheSelect(true)
-        setLoading(false)
-      }
+      if (data.length > 0) { setCurrentMarche(data[0]); fetchMarcheData(data[0].id) }
+      else { setShowMarcheSelect(true); setLoading(false) }
     })
   }, [fetchMarches, fetchMarcheData])
 
   const handleSelectMarche = (m: Marche) => {
-    setCurrentMarche(m)
-    setShowMarcheSelect(false)
-    setTab('dashboard')
-    fetchMarcheData(m.id)
+    setCurrentMarche(m); setShowMarcheSelect(false); setTab('dashboard'); fetchMarcheData(m.id)
   }
 
   const handleCreateMarche = async (name: string, date: string, notes: string, docUrl: string) => {
     const { data, error } = await supabase.from('marches').insert({ name, date: date || null, status: 'planning', notes, doc_url: docUrl || null }).select().single()
     if (error) { showToast('作成に失敗しました', 'error'); return }
-    await fetchMarches()
-    handleSelectMarche(data)
+    await fetchMarches(); handleSelectMarche(data)
   }
 
   const handleToggleMarcheStatus = async (m: Marche) => {
     const newStatus = m.status === 'closed' ? 'planning' : 'closed'
-    const label = newStatus === 'closed' ? '終了済みに変更しました' : '開催予定に戻しました'
     await supabase.from('marches').update({ status: newStatus }).eq('id', m.id)
     const updated = { ...m, status: newStatus as 'planning' | 'closed' }
     if (currentMarche?.id === m.id) setCurrentMarche(updated)
     setMarches((prev) => prev.map((x) => x.id === m.id ? updated : x))
-    showToast(label)
-  }
-
-  const handleDeleteMarche = async (m: Marche) => {
-    setConfirmDeleteMarche(m)
+    showToast(newStatus === 'closed' ? '終了済みに変更しました' : '開催予定に戻しました')
   }
 
   const handleConfirmDeleteMarche = async () => {
@@ -784,142 +700,94 @@ export default function MarcheApp() {
     showToast('削除しました')
   }
 
-  // 催し物保存
   const handleSaveEvent = async (ev: Partial<Event>, draftItems: DraftItem[]) => {
     if (!currentMarche) { showToast('マルシェが選択されていません', 'error'); return }
     setSaving(true)
     try {
       let eventId = ev.id
-
       if (ev.id) {
-        // 既存イベント更新
-        const { error } = await supabase.from('events').update({
-          name: ev.name,
-          selling_price: ev.selling_price ?? 0,
-          target_quantity: ev.target_quantity ?? 0,
-          actual_quantity: ev.actual_quantity ?? null,
-          actual_sales: ev.actual_sales ?? null,
-          notes: ev.notes ?? '',
-        }).eq('id', ev.id)
+        const { error } = await supabase.from('events').update({ name: ev.name, selling_price: ev.selling_price ?? 0, target_quantity: ev.target_quantity ?? 0, actual_quantity: ev.actual_quantity ?? null, actual_sales: ev.actual_sales ?? null, notes: ev.notes ?? '' }).eq('id', ev.id)
         if (error) throw new Error('催し物更新エラー: ' + error.message)
       } else {
-        // 新規イベント追加
-        const insertData: any = {
-          name: ev.name,
-          selling_price: ev.selling_price ?? 0,
-          target_quantity: ev.target_quantity ?? 0,
-          notes: ev.notes ?? '',
-        }
-        // marche_idが設定可能な場合のみ追加
-        if (currentMarche.id) insertData.marche_id = currentMarche.id
+        const insertData: any = { name: ev.name, selling_price: ev.selling_price ?? 0, target_quantity: ev.target_quantity ?? 0, notes: ev.notes ?? '', marche_id: currentMarche.id }
         if (ev.actual_quantity != null) insertData.actual_quantity = ev.actual_quantity
         if (ev.actual_sales != null) insertData.actual_sales = ev.actual_sales
-
         const { data, error } = await supabase.from('events').insert(insertData).select().single()
         if (error) throw new Error('催し物追加エラー: ' + error.message)
-        if (!data) throw new Error('保存後のデータが取得できませんでした')
         eventId = data.id
       }
-
       if (!eventId) throw new Error('イベントIDが取得できませんでした')
-
-      // 仕入れ品目を削除して再挿入
-      const { error: delError } = await supabase.from('purchase_items').delete().eq('event_id', eventId)
-      if (delError) throw new Error('品目削除エラー: ' + delError.message)
-
+      await supabase.from('purchase_items').delete().eq('event_id', eventId)
       const valid = draftItems.filter((it) => it.item_name.trim())
       if (valid.length > 0) {
-        const { error: insError } = await supabase.from('purchase_items').insert(
+        const { error } = await supabase.from('purchase_items').insert(
           valid.map((it) => ({
-            event_id: eventId,
-            item_name: it.item_name.trim(),
-            quantity: Number(it.quantity) || 0,
+            event_id: eventId, item_name: it.item_name.trim(), quantity: Number(it.quantity) || 0,
             unit_cost: Math.round(Number(it.unit_cost) || 0),
             amount_override: it.amountLocked && it.amount !== '' ? Number(it.amount) : null,
           }))
         )
-        if (insError) throw new Error('品目保存エラー: ' + insError.message)
+        if (error) throw new Error('品目保存エラー: ' + error.message)
       }
-
-      await fetchMarcheData(currentMarche.id)
-      setEventModal(null)
-      showToast(ev.id ? '更新しました ✓' : '追加しました ✓')
-    } catch (e: any) {
-      const msg = String(e?.message ?? e)
-      showToast(msg.slice(0, 60), 'error')
-      console.error('handleSaveEvent error:', e)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // 出展者保存
-  const handleSaveExhibitor = async (ex: Partial<Exhibitor>) => {
-    if (!currentMarche) return
-    setSaving(true)
-    try {
-      if (ex.id) {
-        await supabase.from('exhibitors').update({ name: ex.name, fee_target: ex.fee_target, fee_actual: ex.fee_actual, notes: ex.notes }).eq('id', ex.id)
-      } else {
-        await supabase.from('exhibitors').insert({ marche_id: currentMarche.id, name: ex.name, fee_target: ex.fee_target, fee_actual: ex.fee_actual, notes: ex.notes })
-      }
-      await fetchMarcheData(currentMarche.id)
-      setExhibitorModal(null)
-      showToast(ex.id ? '更新しました ✓' : '追加しました ✓')
-    } catch (e: any) { showToast('エラー: ' + String(e?.message ?? e).slice(0,40), 'error'); console.error(e) }
+      await fetchMarcheData(currentMarche.id); setEventModal(null); showToast(ev.id ? '更新しました ✓' : '追加しました ✓')
+    } catch (e: any) { showToast(String(e?.message ?? e).slice(0, 60), 'error'); console.error(e) }
     finally { setSaving(false) }
   }
 
-  // その他経費追加
+  const handleSaveExhibitor = async (ex: Partial<Exhibitor>) => {
+    if (!currentMarche) return; setSaving(true)
+    try {
+      if (ex.id) await supabase.from('exhibitors').update({ name: ex.name, fee_target: ex.fee_target, fee_actual: ex.fee_actual, notes: ex.notes }).eq('id', ex.id)
+      else await supabase.from('exhibitors').insert({ marche_id: currentMarche.id, name: ex.name, fee_target: ex.fee_target, fee_actual: ex.fee_actual, notes: ex.notes })
+      await fetchMarcheData(currentMarche.id); setExhibitorModal(null); showToast(ex.id ? '更新しました ✓' : '追加しました ✓')
+    } catch { showToast('保存に失敗しました', 'error') }
+    finally { setSaving(false) }
+  }
+
   const handleAddExpense = async () => {
     if (!currentMarche || !newExpenseDesc.trim()) { alert('内容を入力してください'); return }
     setSaving(true)
     try {
       await supabase.from('other_expenses').insert({ marche_id: currentMarche.id, description: newExpenseDesc.trim(), amount: Number(newExpenseAmt) || 0 })
       setNewExpenseDesc(''); setNewExpenseAmt('')
-      await fetchMarcheData(currentMarche.id)
-      showToast('追加しました ✓')
-    } catch (e: any) { showToast('エラー: ' + String(e?.message ?? e).slice(0,40), 'error'); console.error(e) }
+      await fetchMarcheData(currentMarche.id); showToast('追加しました ✓')
+    } catch { showToast('追加に失敗しました', 'error') }
     finally { setSaving(false) }
   }
 
-  // 削除
   const handleDelete = async () => {
-    if (!confirmDelete) return
-    setSaving(true)
+    if (!confirmDelete) return; setSaving(true)
     try {
       const table = confirmDelete.type === 'event' ? 'events' : confirmDelete.type === 'exhibitor' ? 'exhibitors' : 'other_expenses'
       await supabase.from(table).delete().eq('id', confirmDelete.id)
       if (currentMarche) await fetchMarcheData(currentMarche.id)
-      setConfirmDelete(null)
-      showToast('削除しました')
-    } catch (e: any) { showToast('エラー: ' + String(e?.message ?? e).slice(0,40), 'error'); console.error(e) }
+      setConfirmDelete(null); showToast('削除しました')
+    } catch { showToast('削除に失敗しました', 'error') }
     finally { setSaving(false) }
   }
 
-  const summary = calcMarcheSummary(events, exhibitors, otherExpenses)
-
-  const tabs: [Tab, string][] = [
-    ['dashboard', '📊'],
-    ['events', '🎡'],
-    ['exhibitors', '🏪'],
-    ['expenses', '💴'],
-    ['settlement', '📋'],
-    ['settings', '⚙️'],
-  ]
-
-  const tabLabels: Record<Tab, string> = {
-    dashboard: 'ダッシュボード',
-    events: '催し物',
-    exhibitors: '出展者',
-    expenses: 'その他経費',
-    settlement: '決算',
-    settings: '設定',
+  const handleUpdateMarche = async (updated: any) => {
+    if (!currentMarche) return
+    const { error } = await supabase.from('marches').update({ name: updated.name, date: updated.date, notes: updated.notes, doc_url: updated.doc_url, doc_urls: updated.doc_urls }).eq('id', currentMarche.id)
+    if (error) { showToast('保存に失敗しました', 'error'); return }
+    const newMarche = { ...currentMarche, ...updated }
+    setCurrentMarche(newMarche)
+    setMarches((prev) => prev.map((m) => m.id === currentMarche.id ? newMarche : m))
+    showToast('保存しました ✓')
   }
+
+  const summary = calcMarcheSummary(events, exhibitors, otherExpenses)
+  const tabs: [Tab, string, string][] = [
+    ['dashboard', '📊', 'DB'],
+    ['events', '🎡', '催し物'],
+    ['exhibitors', '🏪', '出展者'],
+    ['expenses', '💴', '経費'],
+    ['settlement', '📋', '決算'],
+    ['settings', '⚙️', '設定'],
+  ]
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
-      {/* ヘッダー */}
       <header className="bg-blue-600 text-white sticky top-0 z-30 shadow-md">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <button onClick={() => setShowMarcheSelect(true)} className="text-left">
@@ -933,7 +801,7 @@ export default function MarcheApp() {
                   {currentMarche.status === 'closed' ? '終了' : '開催予定'}
                 </span>
               )}
-              <span className="text-blue-300">▼ 切替</span>
+              <span className="text-blue-300">▼</span>
             </div>
           </button>
           <div className="flex gap-2 shrink-0">
@@ -948,13 +816,12 @@ export default function MarcheApp() {
             )}
           </div>
         </div>
-        {/* タブ */}
         <div className="max-w-4xl mx-auto flex border-t border-blue-500">
-          {tabs.map(([t, icon]) => (
+          {tabs.map(([t, icon, label]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-1 py-2 text-xs font-medium transition-colors flex flex-col items-center gap-0.5 ${tab === t ? 'bg-white text-blue-600' : 'text-blue-200'}`}>
               <span className="text-base">{icon}</span>
-              <span>{tabLabels[t]}</span>
+              <span>{label}</span>
             </button>
           ))}
         </div>
@@ -971,15 +838,13 @@ export default function MarcheApp() {
           </div>
         ) : (
           <>
-            {/* ─── ダッシュボード ─── */}
+            {/* ダッシュボード */}
             {tab === 'dashboard' && (
               <div className="space-y-6">
                 <section>
                   <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">全体収支</h2>
                   <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="bg-gray-50 px-4 py-2 text-xs font-bold text-gray-500 grid grid-cols-3">
-                      <span>項目</span><span className="text-right">目標</span><span className="text-right">実績</span>
-                    </div>
+                    <div className="bg-gray-50 px-4 py-2 text-xs font-bold text-gray-500 grid grid-cols-3 gap-2"><span>項目</span><span className="text-right">目標</span><span className="text-right">実績</span></div>
                     {[
                       { label: '催し物収入', target: summary.targetEventSales, actual: summary.actualEventSales },
                       { label: '出展者収入', target: summary.targetExhibitorFee, actual: summary.actualExhibitorFee },
@@ -988,26 +853,19 @@ export default function MarcheApp() {
                       { label: 'その他経費', target: -summary.otherExpenseTotal, actual: -summary.otherExpenseTotal },
                       { label: '支出合計', target: -summary.totalCost, actual: -summary.totalCost, bold: true },
                     ].map(({ label, target, actual, bold }) => (
-                      <div key={label} className={`px-4 py-2.5 grid grid-cols-3 border-t border-gray-100 ${bold ? 'bg-gray-50' : ''}`}>
+                      <div key={label} className={`px-4 py-2.5 grid grid-cols-3 gap-2 border-t border-gray-100 ${bold ? 'bg-gray-50' : ''}`}>
                         <span className={`text-sm ${bold ? 'font-bold' : 'text-gray-600'}`}>{label}</span>
                         <span className={`text-right text-sm font-medium ${(target ?? 0) < 0 ? 'text-red-600' : 'text-gray-800'}`}>{fmt(target)}</span>
                         <span className={`text-right text-sm font-medium ${actual == null ? 'text-gray-300' : actual < 0 ? 'text-red-600' : 'text-gray-800'}`}>{actual == null ? '—' : fmt(actual)}</span>
                       </div>
                     ))}
-                    {/* 粗利行 */}
-                    <div className="px-4 py-3 grid grid-cols-3 border-t-2 border-gray-300 bg-blue-50">
+                    <div className="px-4 py-3 grid grid-cols-3 gap-2 border-t-2 border-gray-300 bg-blue-50">
                       <span className="font-bold text-gray-900">粗利</span>
                       <span className={`text-right font-bold text-base ${summary.targetProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(summary.targetProfit)}</span>
                       <span className={`text-right font-bold text-base ${summary.actualProfit == null ? 'text-gray-300' : summary.actualProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{summary.actualProfit == null ? '未入力' : fmt(summary.actualProfit)}</span>
                     </div>
-                    <div className="px-4 py-2.5 grid grid-cols-3 border-t border-blue-100 bg-blue-50">
-                      <span className="text-sm text-gray-600">粗利率</span>
-                      <span className="text-right text-sm font-medium">{pct(summary.targetMargin)}</span>
-                      <span className={`text-right text-sm font-medium ${summary.actualMargin == null ? 'text-gray-300' : ''}`}>{summary.actualMargin == null ? '—' : pct(summary.actualMargin)}</span>
-                    </div>
                   </div>
                 </section>
-
                 <section>
                   <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">催し物別進捗</h2>
                   <div className="space-y-2">
@@ -1046,7 +904,7 @@ export default function MarcheApp() {
               </div>
             )}
 
-            {/* ─── 催し物 ─── */}
+            {/* 催し物 */}
             {tab === 'events' && (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
@@ -1091,7 +949,7 @@ export default function MarcheApp() {
               </div>
             )}
 
-            {/* ─── 出展者 ─── */}
+            {/* 出展者 */}
             {tab === 'exhibitors' && (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
@@ -1101,7 +959,7 @@ export default function MarcheApp() {
                 <div className="grid grid-cols-2 gap-3">
                   <SCard label="出展者数" value={`${exhibitors.length}件`} />
                   <SCard label="目標出展料合計" value={fmt(summary.targetExhibitorFee)} />
-                  <SCard label="実績出展料合計" value={summary.actualExhibitorFee != null ? fmt(summary.actualExhibitorFee) : '未入力'} highlight={summary.actualExhibitorFee != null} />
+                  {summary.actualExhibitorFee != null && <SCard label="実績出展料合計" value={fmt(summary.actualExhibitorFee)} highlight />}
                 </div>
                 {exhibitors.length === 0 ? (
                   <div className="text-center py-12 text-gray-400"><div className="text-5xl mb-4">🏪</div><p className="mb-4">まだ出展者がいません</p><button onClick={() => setExhibitorModal({})} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold">＋ 追加する</button></div>
@@ -1133,102 +991,66 @@ export default function MarcheApp() {
               </div>
             )}
 
-            {/* ─── その他経費 ─── */}
+            {/* その他経費 */}
             {tab === 'expenses' && (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">その他経費</h2>
                   <div className="text-sm font-bold text-gray-700">合計 {fmt(summary.otherExpenseTotal)}</div>
                 </div>
-
-                {/* 入力フォーム */}
                 <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
                   <h3 className="text-sm font-bold text-gray-700">＋ 経費を追加</h3>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">内容</label>
-                    <input type="text"
+                    <input type="text" inputMode="text"
                       className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      inputMode="text" placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('expense-amount')?.focus() } }}
-                    />
+                      placeholder="例：会場使用料" value={newExpenseDesc} onChange={(e) => setNewExpenseDesc(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); newExpenseAmtRef.current?.focus() } }} />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">金額（円）</label>
-                    <input type="text" inputMode="numeric" pattern="[0-9]*" id="expense-amount"
-                    autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                    value={newExpenseAmt} placeholder="0"
-                    onChange={(e) => setNewExpenseAmt(e.target.value.replace(/[^0-9]/g, ''))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddExpense() } }}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
+                    <input ref={newExpenseAmtRef} type="text" inputMode="numeric" pattern="[0-9]*"
+                      autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                      className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      placeholder="0" value={newExpenseAmt} onChange={(e) => setNewExpenseAmt(e.target.value.replace(/[^0-9]/g, ''))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddExpense() } }} />
                   </div>
-                  <button onClick={handleAddExpense} disabled={saving}
-                    className="w-full py-3 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:bg-blue-300">
-                    追加する
-                  </button>
+                  <button onClick={handleAddExpense} disabled={saving} className="w-full py-3 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:bg-blue-300">追加する</button>
                 </div>
-
-                {/* 経費一覧 */}
                 {otherExpenses.length === 0 ? (
                   <div className="text-center py-12 text-gray-400"><div className="text-4xl mb-3">💴</div><p>その他経費がまだありません</p></div>
                 ) : (
                   <div className="space-y-2">
                     {otherExpenses.map((exp) => (
                       <div key={exp.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between shadow-sm">
-                        <div>
-                          <div className="font-medium text-gray-900 text-sm">{exp.description}</div>
-                          <div className="text-sm font-bold text-red-600 mt-0.5">{fmt(exp.amount)}</div>
-                        </div>
+                        <div><div className="font-medium text-gray-900 text-sm">{exp.description}</div><div className="text-sm font-bold text-red-600 mt-0.5">{fmt(exp.amount)}</div></div>
                         <button onClick={() => setConfirmDelete({ type: 'expense', id: exp.id, name: exp.description })} className="bg-red-50 text-red-500 text-xs px-3 py-1.5 rounded-lg">削除</button>
                       </div>
                     ))}
-                    <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
-                      <span className="font-bold text-gray-700">合計</span>
-                      <span className="font-bold text-red-600 text-base">{fmt(summary.otherExpenseTotal)}</span>
-                    </div>
+                    <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between"><span className="font-bold text-gray-700">合計</span><span className="font-bold text-red-600 text-base">{fmt(summary.otherExpenseTotal)}</span></div>
                   </div>
                 )}
               </div>
             )}
 
-            {/* ─── 設定 ─── */}
-            {tab === 'settings' && currentMarche && (
-              <MarcheSettingsPanel
-                marche={currentMarche}
-                onUpdate={async (updated) => {
-                  const { error } = await supabase.from('marches').update({
-                    name: updated.name,
-                    date: updated.date || null,
-                    notes: updated.notes,
-                    doc_url: updated.doc_url || null,
-                  }).eq('id', currentMarche.id)
-                  if (error) { showToast('保存に失敗しました', 'error'); return }
-                  setCurrentMarche({ ...currentMarche, ...updated })
-                  setMarches((prev) => prev.map((m) => m.id === currentMarche.id ? { ...m, ...updated } : m))
-                  showToast('保存しました ✓')
-                }}
-              />
+            {/* 設定 */}
+            {tab === 'settings' && (
+              <MarcheSettingsPanel marche={currentMarche} onUpdate={handleUpdateMarche} />
             )}
 
-                        {/* ─── 決算 ─── */}
+            {/* 決算 */}
             {tab === 'settlement' && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">イベント決算</h2>
-                  <button onClick={() => exportSettlementCSV(currentMarche, events, exhibitors, otherExpenses)}
-                    className="bg-green-600 text-white text-sm px-4 py-2 rounded-xl font-bold shadow">
-                    📥 CSV出力
-                  </button>
+                  <button onClick={() => exportSettlementCSV(currentMarche, events, exhibitors, otherExpenses)} className="bg-green-600 text-white text-sm px-4 py-2 rounded-xl font-bold shadow">📥 CSV出力</button>
                 </div>
-
-                {/* 決算サマリ */}
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="bg-blue-600 text-white px-5 py-4">
                     <h3 className="text-base font-bold">{currentMarche.name}</h3>
                     <p className="text-blue-200 text-xs mt-1">開催日：{currentMarche.date ?? '—'}</p>
                   </div>
                   <div className="p-4 space-y-4">
-                    {/* 収支サマリ */}
                     <div>
                       <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">■ 収支サマリ</h4>
                       <div className="space-y-1">
@@ -1242,11 +1064,10 @@ export default function MarcheApp() {
                             <span>{label}</span>
                             <div className="flex gap-4 text-right">
                               <span className="w-24 text-gray-500">{fmt(neg ? -target : target)}</span>
-                              <span className={`w-24 ${actual == null ? 'text-gray-300' : neg ? 'text-red-600' : 'text-gray-800'}`}>{actual == null ? '未入力' : fmt(neg ? -(actual as number) : actual)}</span>
+                              <span className={`w-24 ${actual == null ? 'text-gray-300' : 'text-gray-800'}`}>{actual == null ? '未入力' : fmt(neg ? -(actual as number) : actual)}</span>
                             </div>
                           </div>
                         ))}
-                        {/* 粗利 */}
                         <div className="flex justify-between text-sm py-2 border-t-2 border-gray-300 font-bold">
                           <span className="text-gray-900">粗利</span>
                           <div className="flex gap-4 text-right">
@@ -1254,17 +1075,9 @@ export default function MarcheApp() {
                             <span className={`w-24 ${summary.actualProfit == null ? 'text-gray-300' : summary.actualProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{summary.actualProfit == null ? '未入力' : fmt(summary.actualProfit)}</span>
                           </div>
                         </div>
-                        <div className="flex justify-between text-xs text-gray-400 pb-1">
-                          <span></span>
-                          <div className="flex gap-4 text-right">
-                            <span className="w-24">目標</span>
-                            <span className="w-24">実績</span>
-                          </div>
-                        </div>
+                        <div className="flex justify-between text-xs text-gray-400 pb-1"><span></span><div className="flex gap-4 text-right"><span className="w-24">目標</span><span className="w-24">実績</span></div></div>
                       </div>
                     </div>
-
-                    {/* 催し物別 */}
                     <div>
                       <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">■ 催し物別実績</h4>
                       <div className="space-y-2">
@@ -1289,8 +1102,6 @@ export default function MarcheApp() {
                         })}
                       </div>
                     </div>
-
-                    {/* 出展者別 */}
                     {exhibitors.length > 0 && (
                       <div>
                         <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">■ 出展者別実績</h4>
@@ -1307,8 +1118,6 @@ export default function MarcheApp() {
                         </div>
                       </div>
                     )}
-
-                    {/* その他経費 */}
                     {otherExpenses.length > 0 && (
                       <div>
                         <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">■ その他経費</h4>
@@ -1319,17 +1128,12 @@ export default function MarcheApp() {
                               <span className="font-medium text-red-600">{fmt(exp.amount)}</span>
                             </div>
                           ))}
-                          <div className="flex justify-between text-sm py-1.5 font-bold">
-                            <span>合計</span><span className="text-red-600">{fmt(summary.otherExpenseTotal)}</span>
-                          </div>
+                          <div className="flex justify-between text-sm py-1.5 font-bold"><span>合計</span><span className="text-red-600">{fmt(summary.otherExpenseTotal)}</span></div>
                         </div>
                       </div>
                     )}
-
-                    {/* 実績入力状況 */}
                     <div className="bg-yellow-50 rounded-xl p-3 text-xs text-yellow-700">
                       実績入力状況：催し物 {summary.eventsWithActualCount}/{summary.totalEvents}件 入力済み
-                      {summary.eventsWithActualCount < summary.totalEvents && ' ／ 未入力の催し物は「催し物」タブから入力できます'}
                     </div>
                   </div>
                 </div>
@@ -1339,40 +1143,13 @@ export default function MarcheApp() {
         )}
       </main>
 
-      {/* マルシェ選択モーダル */}
       {showMarcheSelect && (
-        <MarcheSelectModal
-          marches={marches}
-          onSelect={handleSelectMarche}
-          onCreate={handleCreateMarche}
-          onToggleStatus={handleToggleMarcheStatus}
-          onDelete={handleDeleteMarche}
-          onClose={() => setShowMarcheSelect(false)}
-        />
+        <MarcheSelectModal marches={marches} onSelect={handleSelectMarche} onCreate={handleCreateMarche} onToggleStatus={handleToggleMarcheStatus} onDelete={(m) => setConfirmDeleteMarche(m)} onClose={() => setShowMarcheSelect(false)} />
       )}
-
-      {/* 催し物モーダル */}
-      {eventModal !== null && (
-        <EventModal event={eventModal} onSave={handleSaveEvent} onClose={() => setEventModal(null)} saving={saving} />
-      )}
-
-      {/* 出展者モーダル */}
-      {exhibitorModal !== null && (
-        <ExhibitorModal exhibitor={exhibitorModal} onSave={handleSaveExhibitor} onClose={() => setExhibitorModal(null)} saving={saving} />
-      )}
-
-      {/* 削除確認 */}
-      {confirmDelete && (
-        <Confirm message={`「${confirmDelete.name}」を削除しますか？\nこの操作は元に戻せません。`} onOk={handleDelete} onCancel={() => setConfirmDelete(null)} />
-      )}
-
-      {confirmDeleteMarche && (
-        <Confirm
-          message={`「${confirmDeleteMarche.name}」を完全に削除しますか？\n催し物・出展者データも全て削除されます。\nこの操作は元に戻せません。`}
-          onOk={handleConfirmDeleteMarche}
-          onCancel={() => setConfirmDeleteMarche(null)}
-        />
-      )}
+      {eventModal !== null && <EventModal event={eventModal} onSave={handleSaveEvent} onClose={() => setEventModal(null)} saving={saving} />}
+      {exhibitorModal !== null && <ExhibitorModal exhibitor={exhibitorModal} onSave={handleSaveExhibitor} onClose={() => setExhibitorModal(null)} saving={saving} />}
+      {confirmDelete && <Confirm message={`「${confirmDelete.name}」を削除しますか？\nこの操作は元に戻せません。`} onOk={handleDelete} onCancel={() => setConfirmDelete(null)} />}
+      {confirmDeleteMarche && <Confirm message={`「${confirmDeleteMarche.name}」を完全に削除しますか？\n催し物・出展者データも全て削除されます。\nこの操作は元に戻せません。`} onOk={handleConfirmDeleteMarche} onCancel={() => setConfirmDeleteMarche(null)} />}
       {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
