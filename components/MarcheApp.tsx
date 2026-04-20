@@ -13,7 +13,7 @@ function applyRound(n: number, mode: RoundMode) {
   return Math.ceil(n)                          // 切り上げ（1円単位）
 }
 
-type Tab = 'dashboard' | 'events' | 'exhibitors' | 'expenses' | 'settlement'
+type Tab = 'dashboard' | 'events' | 'exhibitors' | 'expenses' | 'settlement' | 'settings'
 type DraftItem = { id: string; item_name: string; quantity: string; unit_cost: string; amount: string; amountLocked: boolean }
 const newDraftItem = (): DraftItem => ({ id: crypto.randomUUID(), item_name: '', quantity: '', unit_cost: '', amount: '', amountLocked: false })
 
@@ -84,11 +84,14 @@ function MarcheSelectModal({ marches, onSelect, onCreate, onToggleStatus, onDele
   onClose: () => void
 }) {
   const [showNew, setShowNew] = useState(false)
+  const [showClosed, setShowClosed] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDate, setNewDate] = useState('')
   const [newNotes, setNewNotes] = useState('')
   const [newDocUrl, setNewDocUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const activeMar = marches.filter(m => m.status !== 'closed')
+  const closedMar = marches.filter(m => m.status === 'closed')
 
   const handleCreate = async () => {
     if (!newName.trim()) { alert('マルシェ名を入力してください'); return }
@@ -104,11 +107,14 @@ function MarcheSelectModal({ marches, onSelect, onCreate, onToggleStatus, onDele
           <h2 className="text-lg font-bold">🎪 マルシェを選択</h2>
           <p className="text-blue-200 text-xs mt-1">管理したいマルシェを選んでください</p>
         </div>
-        <div className="p-4 space-y-3 max-h-80 overflow-y-auto">
+        <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
           {marches.length === 0 && !showNew && (
             <p className="text-gray-400 text-sm text-center py-4">まだマルシェがありません</p>
           )}
-          {marches.map((m) => (
+          {activeMar.length === 0 && closedMar.length > 0 && !showNew && (
+            <p className="text-gray-400 text-sm text-center py-2">開催予定のマルシェはありません</p>
+          )}
+          {activeMar.map((m) => (
             <div key={m.id} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
               <button onClick={() => onSelect(m)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
                 <div className="font-bold text-gray-900">{m.name}</div>
@@ -132,10 +138,7 @@ function MarcheSelectModal({ marches, onSelect, onCreate, onToggleStatus, onDele
                 </button>
               </div>
             </div>
-          ))}
-        </div>
-
-        {!showNew ? (
+          )}}
           <div className="px-4 pb-4">
             <button onClick={() => setShowNew(true)}
               className="w-full py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">
@@ -410,7 +413,37 @@ function EventModal({ event, onSave, onClose, saving }: {
                     )}
                   </div>
                 )
-              })}
+              ))}
+          {closedMar.length > 0 && (
+            <div>
+              <button onClick={() => setShowClosed(!showClosed)}
+                className="w-full text-left text-xs text-gray-400 py-2 flex items-center gap-2 hover:text-gray-600">
+                <span>{showClosed ? '▼' : '▶'}</span>
+                <span>終了済み（{closedMar.length}件）</span>
+              </button>
+              {showClosed && closedMar.map((m) => (
+                <div key={m.id} className="bg-gray-100 border border-gray-200 rounded-xl overflow-hidden mt-2 opacity-70">
+                  <button onClick={() => onSelect(m)} className="w-full text-left px-4 py-3 hover:bg-gray-200 transition-colors">
+                    <div className="font-medium text-gray-700 text-sm">{m.name}</div>
+                    <div className="flex gap-3 text-xs text-gray-400 mt-1">
+                      <span>{m.date ?? '日付未設定'}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-500">終了</span>
+                    </div>
+                  </button>
+                  <div className="flex border-t border-gray-200">
+                    <button onClick={(e) => { e.stopPropagation(); onToggleStatus(m) }}
+                      className="flex-1 py-2 text-xs font-medium text-green-600 bg-green-50 hover:bg-green-100">
+                      🔄 開催予定に戻す
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(m) }}
+                      className="flex-1 py-2 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 border-l border-gray-200">
+                      🗑 削除する
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
               <button onClick={() => setItems((p) => [...p, newDraftItem()])} className="w-full py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">＋ 品目を追加</button>
             </div>
           </section>
@@ -517,6 +550,139 @@ function ExhibitorModal({ exhibitor, onSave, onClose, saving }: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+// ─── マルシェ設定パネル ───────────────────────────────────
+function MarcheSettingsPanel({ marche, onUpdate }: {
+  marche: Marche
+  onUpdate: (updated: Partial<Marche> & { doc_url?: string }) => Promise<void>
+}) {
+  const [name, setName] = useState(marche.name)
+  const [date, setDate] = useState(marche.date ?? '')
+  const [notes, setNotes] = useState(marche.notes ?? '')
+  const [docUrls, setDocUrls] = useState<{id: string; label: string; url: string}[]>([])
+  const [newLabel, setNewLabel] = useState('')
+  const [newUrl, setNewUrl] = useState('')
+  const [saving, setSaving] = useState(false)
+  const newUrlRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    try {
+      const stored = (marche as any).doc_urls
+      if (stored) setDocUrls(JSON.parse(stored))
+      else if ((marche as any).doc_url) {
+        setDocUrls([{ id: '1', label: '資料', url: (marche as any).doc_url }])
+      }
+    } catch { }
+  }, [marche.id])
+
+  const handleSave = async () => {
+    setSaving(true)
+    await onUpdate({
+      name: name.trim() || marche.name,
+      date: date || null,
+      notes: notes.trim(),
+      doc_url: docUrls.length > 0 ? docUrls[0].url : '',
+      doc_urls: JSON.stringify(docUrls),
+    } as any)
+    setSaving(false)
+  }
+
+  const addLink = () => {
+    if (!newUrl.trim()) return
+    setDocUrls(prev => [...prev, { id: crypto.randomUUID(), label: newLabel.trim() || '資料', url: newUrl.trim() }])
+    setNewLabel(''); setNewUrl('')
+  }
+
+  const removeLink = (id: string) => setDocUrls(prev => prev.filter(d => d.id !== id))
+
+  return (
+    <div className="space-y-5">
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">マルシェ設定</h2>
+
+      {/* 基本情報 */}
+      <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
+        <h3 className="text-sm font-bold text-gray-700">基本情報</h3>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">マルシェ名</label>
+          <input type="text" inputMode="text"
+            className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">開催日</label>
+          <input type="date"
+            className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">企画メモ</label>
+          <textarea
+            className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            rows={4} placeholder="企画内容・備考・当日の注意事項など"
+            value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+        <button onClick={handleSave} disabled={saving}
+          className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-3 rounded-xl text-sm font-bold">
+          {saving ? '保存中...' : '💾 保存する'}
+        </button>
+      </section>
+
+      {/* 資料リンク */}
+      <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
+        <h3 className="text-sm font-bold text-gray-700">📎 資料リンク</h3>
+        <p className="text-xs text-gray-400">Google Drive・Dropbox・OneDriveなどのURLを登録できます</p>
+
+        {/* 登録済みリンク */}
+        {docUrls.length > 0 && (
+          <div className="space-y-2">
+            {docUrls.map((d) => (
+              <div key={d.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-800 truncate">{d.label}</div>
+                  <a href={d.url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-blue-500 underline truncate block">{d.url}</a>
+                </div>
+                <button onClick={() => removeLink(d.id)} className="text-red-400 text-xs px-2 py-1 rounded-lg bg-red-50 shrink-0">削除</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 新規追加 */}
+        <div className="space-y-2 border-t pt-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">ラベル（例：企画書・予算表）</label>
+            <input type="text" inputMode="text"
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="企画書" value={newLabel} onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); newUrlRef.current?.focus() } }}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">URL</label>
+            <input ref={newUrlRef} type="url"
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="https://drive.google.com/..." value={newUrl} onChange={(e) => setNewUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLink() } }}
+            />
+          </div>
+          <button onClick={addLink}
+            className="w-full py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-medium">
+            ＋ リンクを追加
+          </button>
+        </div>
+
+        {docUrls.length > 0 && (
+          <button onClick={handleSave} disabled={saving}
+            className="w-full bg-blue-600 disabled:bg-blue-300 text-white py-3 rounded-xl text-sm font-bold">
+            {saving ? '保存中...' : '💾 リンクを保存する'}
+          </button>
+        )}
+      </section>
     </div>
   )
 }
@@ -739,6 +905,7 @@ export default function MarcheApp() {
     ['exhibitors', '🏪'],
     ['expenses', '💴'],
     ['settlement', '📋'],
+    ['settings', '⚙️'],
   ]
 
   const tabLabels: Record<Tab, string> = {
@@ -747,6 +914,7 @@ export default function MarcheApp() {
     exhibitors: '出展者',
     expenses: 'その他経費',
     settlement: '決算',
+    settings: '設定',
   }
 
   return (
@@ -1023,7 +1191,26 @@ export default function MarcheApp() {
               </div>
             )}
 
-            {/* ─── 決算 ─── */}
+            {/* ─── 設定 ─── */}
+            {tab === 'settings' && currentMarche && (
+              <MarcheSettingsPanel
+                marche={currentMarche}
+                onUpdate={async (updated) => {
+                  const { error } = await supabase.from('marches').update({
+                    name: updated.name,
+                    date: updated.date || null,
+                    notes: updated.notes,
+                    doc_url: updated.doc_url || null,
+                  }).eq('id', currentMarche.id)
+                  if (error) { showToast('保存に失敗しました', 'error'); return }
+                  setCurrentMarche({ ...currentMarche, ...updated })
+                  setMarches((prev) => prev.map((m) => m.id === currentMarche.id ? { ...m, ...updated } : m))
+                  showToast('保存しました ✓')
+                }}
+              />
+            )}
+
+                        {/* ─── 決算 ─── */}
             {tab === 'settlement' && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
